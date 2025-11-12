@@ -37,6 +37,7 @@ wheels/
 htmlcov/
 .tox/
 .hypothesis/
+output.txt
 
 # IDE
 .vscode/

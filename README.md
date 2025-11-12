@@ -29,11 +29,6 @@ This will create a virtual environment and install all dependencies.
 ### Running the Script
 
 ```powershell
-uv run calendar_report
-```
-
-Or run with Python directly:
-```powershell
 uv run python calendar_report.py
 ```
 
@@ -47,11 +42,13 @@ python calendar_report.py
 ## Usage
 
 ```powershell
-uv run calendar_report [options]
+uv run python calendar_report.py [options]
 ```
 
-Or:
+Or activate the virtual environment first:
 ```powershell
+uv venv
+.\.venv\Scripts\Activate.ps1
 python calendar_report.py [options]
 ```
 
