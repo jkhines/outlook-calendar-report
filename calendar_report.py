@@ -249,47 +249,19 @@ class OutlookCalendarReporter:
         
         return start_is_midnight and end_is_midnight and is_full_day
 
-    def get_current_workweek_events(self, week_offset: int = 0, start_date: datetime.date = None, end_date: datetime.date = None) -> List:
-        """Get all calendar events for a workweek offset relative to the current week or custom date range.
-        week_offset = 0 (default) -> current workweek
-        week_offset = -1 -> previous workweek
-        week_offset = 1 -> next workweek
-        start_date: If provided, use this date as the starting date for the analysis
-        end_date: If provided with start_date, use this as the ending date (inclusive)
-        """
-        # Calculate target date range bounds
-        if start_date is not None:
-            # Use provided start date
-            monday_start = datetime.datetime.combine(start_date, datetime.time(0, 0, 0))
-            if end_date is not None:
-                # Use provided end date, set to end of day (23:59:59)
-                friday_end = datetime.datetime.combine(end_date, datetime.time(23, 59, 59))
-            else:
-                # If only start_date provided, find the Monday of that week and use Friday
-                days_since_monday = start_date.weekday()
-                monday_start_date = start_date - datetime.timedelta(days=days_since_monday)
-                monday_start = datetime.datetime.combine(monday_start_date, datetime.time(0, 0, 0))
-                friday_end = monday_start + datetime.timedelta(days=4, hours=23, minutes=59, seconds=59)
-        else:
-            now = datetime.datetime.now()
-            # Monday of the current week (00:00)
-            monday_current = now - datetime.timedelta(days=now.weekday())
-            monday_current = monday_current.replace(hour=0, minute=0, second=0, microsecond=0)
-            # Shift to the desired week
-            monday_start = monday_current + datetime.timedelta(days=7 * week_offset)
-            friday_end = monday_start + datetime.timedelta(days=4, hours=23, minutes=59, seconds=59)
-        
+    def _fetch_events_for_range(self, range_start: datetime.datetime, range_end: datetime.datetime) -> List:
+        """Fetch calendar events for a specific date range. Internal helper method."""
         events = []
         
         try:
-            # Get calendar items within workweek range
+            # Get calendar items within date range
             items = self.calendar_folder.Items
             items.Sort("[Start]")
-            items.IncludeRecurrences = True  # Re-enable to capture recurring events
+            items.IncludeRecurrences = True
             
-            # Create filter for workweek date range (include any event that overlaps the window)
-            start_str = monday_start.strftime('%m/%d/%Y %I:%M %p')  # e.g., 06/09/2025 12:00 AM
-            end_str = friday_end.strftime('%m/%d/%Y %I:%M %p')      # e.g., 06/13/2025 11:59 PM
+            # Create filter for date range (include any event that overlaps the window)
+            start_str = range_start.strftime('%m/%d/%Y %I:%M %p')
+            end_str = range_end.strftime('%m/%d/%Y %I:%M %p')
 
             # Outlook filter: event overlaps range if it starts before range end AND ends after range start
             date_filter = (
@@ -299,9 +271,7 @@ class OutlookCalendarReporter:
             filtered_items = items.Restrict(date_filter)
             
             # Process each calendar item
-            items_processed = 0
             for item in filtered_items:
-                items_processed += 1
                 try:
                     # Skip cancelled events
                     if hasattr(item, 'IsCancelled') and item.IsCancelled:
@@ -320,8 +290,6 @@ class OutlookCalendarReporter:
                         end_time = item.End
                         start_pt, end_pt = self.convert_to_pacific(start_time, end_time)
                         
-                        # No debug output
-                        
                         # Calculate work hours overlap (9am-5pm Pacific Time only)
                         work_hours_duration = self.calculate_work_hours_overlap(start_pt, end_pt)
                         
@@ -332,13 +300,12 @@ class OutlookCalendarReporter:
                         if include_event:
                             event_info = {
                                 'subject': getattr(item, 'Subject', 'Untitled'),
-                                'start': start_pt,  # Pacific
-                                'end': end_pt,      # Pacific
-                                'duration_hours': work_hours_duration,  # overlap hours (may be 0 for Holiday/Vacation)
+                                'start': start_pt,
+                                'end': end_pt,
+                                'duration_hours': work_hours_duration,
                                 'categories': categories_str
                             }
                             events.append(event_info)
-                        #
                 except (AttributeError, TypeError, ValueError) as e:
                     print(f"Error processing calendar item: {e}")
                     continue
@@ -347,6 +314,74 @@ class OutlookCalendarReporter:
             print(f"Error retrieving calendar events: {e}")
         
         return events
+
+    def get_current_workweek_events(self, week_offset: int = 0, start_date: datetime.date = None, end_date: datetime.date = None) -> List:
+        """Get all calendar events for a workweek offset relative to the current week or custom date range.
+        week_offset = 0 (default) -> current workweek
+        week_offset = -1 -> previous workweek
+        week_offset = 1 -> next workweek
+        start_date: If provided, use this date as the starting date for the analysis
+        end_date: If provided with start_date, use this as the ending date (inclusive)
+        """
+        # Calculate target date range bounds
+        if start_date is not None:
+            # Use provided start date
+            range_start = datetime.datetime.combine(start_date, datetime.time(0, 0, 0))
+            if end_date is not None:
+                # Use provided end date, set to end of day (23:59:59)
+                range_end = datetime.datetime.combine(end_date, datetime.time(23, 59, 59))
+            else:
+                # If only start_date provided, find the Monday of that week and use Friday
+                days_since_monday = start_date.weekday()
+                monday_start_date = start_date - datetime.timedelta(days=days_since_monday)
+                range_start = datetime.datetime.combine(monday_start_date, datetime.time(0, 0, 0))
+                range_end = range_start + datetime.timedelta(days=4, hours=23, minutes=59, seconds=59)
+        else:
+            now = datetime.datetime.now()
+            # Monday of the current week (00:00)
+            monday_current = now - datetime.timedelta(days=now.weekday())
+            monday_current = monday_current.replace(hour=0, minute=0, second=0, microsecond=0)
+            # Shift to the desired week
+            range_start = monday_current + datetime.timedelta(days=7 * week_offset)
+            range_end = range_start + datetime.timedelta(days=4, hours=23, minutes=59, seconds=59)
+        
+        # Calculate the total days in the range
+        total_days = (range_end.date() - range_start.date()).days + 1
+        
+        # For large date ranges, process in monthly chunks to avoid Outlook COM slowdown
+        if total_days > 31:
+            print(f"Processing {total_days} days in monthly chunks...")
+            events = []
+            seen_events = set()  # Track unique events by (subject, start, end)
+            chunk_start = range_start
+            
+            while chunk_start < range_end:
+                # Calculate chunk end (up to 31 days or until range_end)
+                chunk_end = min(
+                    chunk_start + datetime.timedelta(days=30, hours=23, minutes=59, seconds=59),
+                    range_end
+                )
+                
+                # Show progress
+                print(f"  Fetching: {chunk_start.strftime('%Y-%m-%d')} to {chunk_end.strftime('%Y-%m-%d')}...")
+                
+                # Fetch events for this chunk
+                chunk_events = self._fetch_events_for_range(chunk_start, chunk_end)
+                
+                # Deduplicate events that may span chunk boundaries
+                for event in chunk_events:
+                    event_key = (event['subject'], event['start'], event['end'])
+                    if event_key not in seen_events:
+                        seen_events.add(event_key)
+                        events.append(event)
+                
+                # Move to next chunk
+                chunk_start = chunk_end.replace(hour=0, minute=0, second=0, microsecond=0) + datetime.timedelta(days=1)
+            
+            return events
+        else:
+            # For small date ranges, fetch directly
+            return self._fetch_events_for_range(range_start, range_end)
 
 
 def categorize_event(categories_str: str) -> str:
