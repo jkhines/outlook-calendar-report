@@ -27,12 +27,59 @@ if "--help" in sys.argv or "-h" in sys.argv:
         "Options:\n"
         "  --lastweek   Analyze previous workweek (Mon-Fri)\n"
         "  --nextweek   Analyze next workweek\n"
+        "  --start DATE Analyze starting from DATE (format: yyyy-MM-dd)\n"
+        "  --end DATE   Analyze ending at DATE (format: yyyy-MM-dd)\n"
         "  --verbose    Show extra details in output\n"
         "  --help, -h   Show this help message and exit\n"
     )
     sys.exit(0)
 
+# Parse --start parameter
+START_DATE = None
+if "--start" in sys.argv:
+    try:
+        start_idx = sys.argv.index("--start")
+        if start_idx + 1 >= len(sys.argv):
+            print("Error: --start requires a date argument (format: yyyy-MM-dd)")
+            sys.exit(1)
+        start_date_str = sys.argv[start_idx + 1]
+        START_DATE = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
+    except ValueError as e:
+        print(f"Error: Invalid date format for --start. Expected yyyy-MM-dd, got: {start_date_str}")
+        print(f"Example: --start 2024-01-15")
+        sys.exit(1)
+
+# Parse --end parameter
+END_DATE = None
+if "--end" in sys.argv:
+    try:
+        end_idx = sys.argv.index("--end")
+        if end_idx + 1 >= len(sys.argv):
+            print("Error: --end requires a date argument (format: yyyy-MM-dd)")
+            sys.exit(1)
+        end_date_str = sys.argv[end_idx + 1]
+        END_DATE = datetime.datetime.strptime(end_date_str, "%Y-%m-%d").date()
+    except ValueError as e:
+        print(f"Error: Invalid date format for --end. Expected yyyy-MM-dd, got: {end_date_str}")
+        print(f"Example: --end 2024-01-20")
+        sys.exit(1)
+
+# Validate --end doesn't precede --start
+if START_DATE is not None and END_DATE is not None:
+    if END_DATE < START_DATE:
+        print(f"Error: --end date ({END_DATE}) cannot precede --start date ({START_DATE})")
+        sys.exit(1)
+
+# Validate --end is not used without --start
+if END_DATE is not None and START_DATE is None:
+    print("Error: --end requires --start to be specified")
+    sys.exit(1)
+
 # Determine which week to analyze based on command-line flags
+if START_DATE is not None and ("--lastweek" in sys.argv or "--nextweek" in sys.argv):
+    print("Error: Cannot specify --start with --lastweek or --nextweek flags.")
+    sys.exit(1)
+
 if "--lastweek" in sys.argv and "--nextweek" in sys.argv:
     print("Error: Cannot specify both --lastweek and --nextweek flags.")
     sys.exit(1)
@@ -202,21 +249,35 @@ class OutlookCalendarReporter:
         
         return start_is_midnight and end_is_midnight and is_full_day
 
-    def get_current_workweek_events(self, week_offset: int = 0) -> List:
-        """Get all calendar events for a workweek offset relative to the current week.
+    def get_current_workweek_events(self, week_offset: int = 0, start_date: datetime.date = None, end_date: datetime.date = None) -> List:
+        """Get all calendar events for a workweek offset relative to the current week or custom date range.
         week_offset = 0 (default) -> current workweek
         week_offset = -1 -> previous workweek
         week_offset = 1 -> next workweek
+        start_date: If provided, use this date as the starting date for the analysis
+        end_date: If provided with start_date, use this as the ending date (inclusive)
         """
-        # Calculate target workweek bounds
-        now = datetime.datetime.now()
-        # Monday of the current week (00:00)
-        monday_current = now - datetime.timedelta(days=now.weekday())
-        monday_current = monday_current.replace(hour=0, minute=0, second=0, microsecond=0)
-
-        # Shift to the desired week
-        monday_start = monday_current + datetime.timedelta(days=7 * week_offset)
-        friday_end = monday_start + datetime.timedelta(days=4, hours=23, minutes=59, seconds=59)
+        # Calculate target date range bounds
+        if start_date is not None:
+            # Use provided start date
+            monday_start = datetime.datetime.combine(start_date, datetime.time(0, 0, 0))
+            if end_date is not None:
+                # Use provided end date, set to end of day (23:59:59)
+                friday_end = datetime.datetime.combine(end_date, datetime.time(23, 59, 59))
+            else:
+                # If only start_date provided, find the Monday of that week and use Friday
+                days_since_monday = start_date.weekday()
+                monday_start_date = start_date - datetime.timedelta(days=days_since_monday)
+                monday_start = datetime.datetime.combine(monday_start_date, datetime.time(0, 0, 0))
+                friday_end = monday_start + datetime.timedelta(days=4, hours=23, minutes=59, seconds=59)
+        else:
+            now = datetime.datetime.now()
+            # Monday of the current week (00:00)
+            monday_current = now - datetime.timedelta(days=now.weekday())
+            monday_current = monday_current.replace(hour=0, minute=0, second=0, microsecond=0)
+            # Shift to the desired week
+            monday_start = monday_current + datetime.timedelta(days=7 * week_offset)
+            friday_end = monday_start + datetime.timedelta(days=4, hours=23, minutes=59, seconds=59)
         
         events = []
         
@@ -555,13 +616,26 @@ def build_report(events: List[dict], reporter: OutlookCalendarReporter, debug: b
             prev_date = current_date
 
 
-def get_workweek_bounds(week_offset: int = 0):
-    """Return the Monday start and Friday end datetimes for the specified workweek offset."""
-    now = datetime.datetime.now()
-    monday_current = now - datetime.timedelta(days=now.weekday())
-    monday_current = monday_current.replace(hour=0, minute=0, second=0, microsecond=0)
-    monday_start = monday_current + datetime.timedelta(days=7 * week_offset)
-    friday_end = monday_start + datetime.timedelta(days=4)
+def get_workweek_bounds(week_offset: int = 0, start_date: datetime.date = None, end_date: datetime.date = None):
+    """Return the start and end datetimes for the specified workweek offset or custom date range."""
+    if start_date is not None:
+        # Use provided start date
+        monday_start = datetime.datetime.combine(start_date, datetime.time(0, 0, 0))
+        if end_date is not None:
+            # Use provided end date
+            friday_end = datetime.datetime.combine(end_date, datetime.time(23, 59, 59))
+        else:
+            # If only start_date provided, find the Monday of that week and use Friday
+            days_since_monday = start_date.weekday()
+            monday_start_date = start_date - datetime.timedelta(days=days_since_monday)
+            monday_start = datetime.datetime.combine(monday_start_date, datetime.time(0, 0, 0))
+            friday_end = monday_start + datetime.timedelta(days=4, hours=23, minutes=59, seconds=59)
+    else:
+        now = datetime.datetime.now()
+        monday_current = now - datetime.timedelta(days=now.weekday())
+        monday_current = monday_current.replace(hour=0, minute=0, second=0, microsecond=0)
+        monday_start = monday_current + datetime.timedelta(days=7 * week_offset)
+        friday_end = monday_start + datetime.timedelta(days=4, hours=23, minutes=59, seconds=59)
     return monday_start, friday_end
 
 
@@ -630,9 +704,9 @@ def main():
         
         print("Connecting to Outlook calendar...")
         
-        # Get workweek date range and events based on requested week
-        monday_start, friday_end = get_workweek_bounds(WEEK_OFFSET)
-        events = reporter.get_current_workweek_events(week_offset=WEEK_OFFSET)
+        # Get date range and events based on requested parameters
+        monday_start, friday_end = get_workweek_bounds(WEEK_OFFSET, START_DATE, END_DATE)
+        events = reporter.get_current_workweek_events(week_offset=WEEK_OFFSET, start_date=START_DATE, end_date=END_DATE)
  
         # Generate and display report
         build_report(events, reporter, DEBUG_MODE, monday_start, friday_end)
