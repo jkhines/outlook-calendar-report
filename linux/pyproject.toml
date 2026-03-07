@@ -1,0 +1,6 @@
+[project]
+name = "calendar-report-linux"
+version = "0.1.0"
+description = "Calendar Category Usage Report from Obsidian Daily Notes"
+requires-python = ">=3.8"
+dependencies = ["pytz"]

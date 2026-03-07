@@ -1,10 +1,9 @@
 [project]
-name = "outlook-calendar-report"
+name = "calendar-report-win32"
 version = "0.1.0"
-description = "Calendar Category Usage Report for Outlook"
+description = "Calendar Category Usage Report from Outlook"
 requires-python = ">=3.8"
 dependencies = [
     "pywin32",
     "pytz",
 ]
-
