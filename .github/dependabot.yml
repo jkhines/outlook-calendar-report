@@ -1,0 +1,10 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/linux"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "pip"
+    directory: "/win32"
+    schedule:
+      interval: "weekly"
